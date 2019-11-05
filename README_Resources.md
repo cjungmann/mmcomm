@@ -11,7 +11,7 @@ help me figure this whole thing out.
 
 ## Opening A Socket
 
-The send email throught SMTP, a socket must be opened.  One must
+The send email through SMTP, a socket must be opened.  One must
 find the IP address of a domain before the socket can be opened.
 
 - Getting the mail server's IP address through **getaddrinfo()**,
