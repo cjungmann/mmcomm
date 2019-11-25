@@ -7,7 +7,7 @@ BINPATH = /usr/local/bin
 all : mmcomm
 
 mmcomm : mmcomm.o addrinfo_debug.o addrinfo_debug.h
-	${CC} -o ${TARGET} mmcomm.o addrinfo_debug.o
+	${CC} -o ${TARGET} mmcomm.o addrinfo_debug.o -lreadini -lssl -lcrypto -lcode64
 
 mmcomm.o : mmcomm.c addrinfo_debug.h
 	${CC} ${CFLAGS} -c -o mmcomm.o mmcomm.c
