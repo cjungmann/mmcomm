@@ -29,3 +29,13 @@ find the IP address of a domain before the socket can be opened.
 
 - [SMTP with TLS](https://halon.io/blog/how-to-test-smtp-servers-using-the-command-line/)
 
+- [Code Project SMTP Client with SSL/TSL](https://www.codeproject.com/Articles/98355/SMTP-Client-with-SSL-TLS)
+
+- [Open SSL Client in C](https://aticleworld.com/ssl-server-client-using-openssl-in-c/)
+
+- [Perhaps more useful; email/gmail specific](https://codevlog.com/gmailsmtp-gmail-com-using-c-programming-ssl/118)
+
+
+## Interpreting Replys
+
+- [SMTP Reply Codes](https://serversmtp.com/smtp-error/) explains codes likes 354, 250, etc.
