@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>    // atoi()
 
 #include <unistd.h>    // close()
 #include <string.h>    // for memset()
@@ -25,6 +26,8 @@
 #include <readini.h>    // For reading the configuration file
 #include <code64.h>     // base64 encoding for username and password
 
+#include "socktalk.h"
+
 // Prototype to make available for function pointer typedefs
 typedef struct bundle Bundle;
 
@@ -40,8 +43,10 @@ typedef struct bundle
    const char       *acct;
    CB_SSL           ssl_user;
    CB_Socket        socket_user;
-   const char       *encodedLogin;
-   const char       *encodedPassword;
+   const char*      raw_login;
+   const char*      encoded_login;
+   const char*      raw_password;
+   const char*      encoded_password;
 } Bundle;
 
 const char *bundle_value(const Bundle *b, const char *section, const char *tag)
@@ -75,7 +80,7 @@ void get_socket(const char *url, const char *service, Bundle *p_bundle)
    if (exit_value==0)
    {
       // The next statement shows debugging info about the addrinfo object:
-      display_addrinfo(result);
+      /* display_addrinfo(result); */
 
       for (rp = result; rp; rp = rp->ai_next)
       {
@@ -110,7 +115,86 @@ void use_socket(int socket_handle, Bundle *p_bundle)
    printf("Got a socket. Doin' nothin' with it.\n");
 }
 
+void use_socket_for_email(int socket_handle, Bundle *p_bundle)
+{
+   size_t bytes_read = 0;
+   size_t bytes_written = 0;
+   size_t total_read = 0;
+   char buffer[1024];
 
+   // Variables for parsing status reply string
+   const char *bptr;
+   int chars_to_advance;
+   int status_code;
+   const char *cur_line;
+   int line_len;
+   STalker *stalker = (STalker *)alloca(sizeof(STalker));
+   init_sock_talker(stalker, socket_handle);
+
+   // Anchor to status reply chain:
+   struct _status_line *sl_anchor = NULL, *sl_tail = NULL;
+   struct _status_line *status_line = NULL;
+   char *temp_message;
+
+   const char *host = acct_value(p_bundle, "host");
+
+   total_read += bytes_read = stk_recv_line(stalker, buffer, sizeof(buffer));
+
+   status_code = atoi(buffer);
+   if (status_code >=200 && status_code < 300)
+   {
+      bytes_written += stk_send_line(stalker, "EHLO ", host, NULL);
+      total_read += bytes_read = stk_recv_line(stalker, buffer, sizeof(buffer));
+
+      bptr = buffer;
+      while (*bptr)
+      {
+         chars_to_advance = walk_status_reply(bptr, &status_code, &cur_line, &line_len);
+         if (chars_to_advance == 0)
+            break;
+         else
+         {
+            status_line = (Status_Line*)alloca(sizeof(Status_Line));
+            memset(status_line, 0, sizeof(Status_Line));
+
+            // Allocate, and copy to new memory, the current message line:
+            temp_message = (char*)alloca(1 + line_len);
+            memcpy(temp_message, cur_line, line_len);
+            temp_message[line_len] = '\0';
+
+            status_line->status = status_code;
+            status_line->message = temp_message;
+
+            if (sl_tail)
+            {
+               sl_tail->next = status_line;
+               sl_tail = status_line;
+            }
+            else
+               sl_tail = sl_anchor = status_line;
+
+            /* printf("%d : %.*s\n", status_code, line_len, cur_line); */
+            bptr += chars_to_advance;
+         }
+      }
+
+
+      Status_Line *clptr = sl_anchor;
+      while (clptr)
+      {
+         printf("%d : \"[44;1m%s[m\"\n", clptr->status, clptr->message);
+         clptr = clptr->next;
+      }
+
+
+      printf("Socket returned [44;1m%.*s[m\n", (int)bytes_read, buffer);
+   }
+}
+
+
+/**
+ * @brief **use_socket** target for 
+ */
 void start_ssl(int socket_handle, Bundle *p_bundle)
 {
    const SSL_METHOD *method;
@@ -243,36 +327,71 @@ int reply_is_good_stderr(char *buffer, int message_length, const char *descripti
 {
    if (reply_is_good(buffer))
    {
-      fprintf(stderr, "The reply was good for %d characters.\n", message_length);
+      fprintf(stderr, "(%s) The reply was good for %d characters.\n", description, message_length);
+      printf("%.*s\n", message_length, buffer);
       return 1;
    }
    else
    {
-      fprintf(stderr, "The server responded with %d characters.\n", message_length);
+      fprintf(stderr, "(%s) The server responded with %d characters.\n", description, message_length);
       buffer[message_length] = '\0';
       fprintf(stderr, "Error during **%s**: \"[44;1m%s[m\"", description, buffer);
       return 0;
    }
 }
 
+void send_message(SSL *ssl, const char *message, char *response, int response_length)
+{
+   fprintf(stderr, "sending [33;1m%s[m.  ", message);
+   int b_sent = SSL_write(ssl, message, strlen(message));
+   b_sent += SSL_write(ssl, "\r\n", 2);
+   fprintf(stderr, " sent %d bytes.\n", b_sent);
+
+   SSL_read(ssl, response, response_length);
+}
+
+int send_authentication(SSL *ssl, Bundle *p_bundle)
+{
+   const char *login_str = p_bundle->encoded_login;
+   const char *pword_str = p_bundle->encoded_password;
+
+   /* const char *login_str = p_bundle->raw_login; */
+   /* const char *pword_str = p_bundle->raw_password; */
+
+   char buffer[1000];
+   send_message(ssl, "AUTH LOGIN", buffer, sizeof(buffer));
+   printf("After auth_login:  [33;1m%s[m\n", buffer);
+   send_message(ssl, login_str, buffer, sizeof(buffer));
+   printf("After login sent:  [33;1m%s[m\n", buffer);
+   send_message(ssl, pword_str, buffer, sizeof(buffer));
+   printf("After password sent:  [33;1m%s[m\n", buffer);
+
+   return 1;
+}
+
 int greet_server(SSL *ssl, Bundle *p_bundle)
 {
    const char *host = acct_value(p_bundle, "host");
-   /* const char *user = acct_value(p_bundle, "user"); */
-   /* const char *password = acct_value(p_bundle, "password"); */
 
    char buffer[2048];
    int message_length;
-   int bytes_written, bytes_read;
+   int bytes_written = 0, bytes_read = 0;
 
    if (host)
    {
-      message_length = sprintf(buffer, "HELO %s\r\n", host);
-      bytes_written = SSL_write(ssl, buffer, message_length);
+      /* message_length = sprintf(buffer, "HELO %s\r\n", host); */
+      message_length = sprintf(buffer, "EHLO %s\r\n", host);
+      bytes_written += SSL_write(ssl, buffer, message_length);
       if (bytes_written == message_length)
       {
-         bytes_read = SSL_read(ssl, buffer, sizeof(buffer));
-         return reply_is_good_stderr(buffer, bytes_read, "server greeting");
+         bytes_read += SSL_read(ssl, buffer, sizeof(buffer));
+         fprintf(stderr, "After HELO, [45;1m%s[m.\n", buffer);
+
+         if (p_bundle->encoded_login)
+            return send_authentication(ssl, p_bundle);
+         else if (reply_is_good(buffer))
+            return 1;
+         /* return reply_is_good_stderr(buffer, bytes_read, "server greeting"); */
       }
    }
 
@@ -350,6 +469,10 @@ void use_ssl(SSL *ssl, Bundle *p_bundle)
          SSL_write(ssl, message, bytes_to_write);
          bytes_read = SSL_read(ssl, message, sizeof(message));
 
+         if (p_bundle->encoded_login)
+         {
+         }
+
          message[bytes_read] = '\0';
          printf("%s\n", message);
       }
@@ -390,7 +513,8 @@ void use_config_file(const ri_Section *section)
    {
       bundle.section = section;
       bundle.ssl_user = use_ssl;
-      bundle.socket_user = start_ssl;
+      /* bundle.socket_user = start_ssl; */
+      bundle.socket_user = use_socket_for_email;
       bundle.acct = acct;
 
       host = acct_value(&bundle, "host");
@@ -400,6 +524,11 @@ void use_config_file(const ri_Section *section)
       const char *password = acct_value(&bundle, "password");
       if (login && password)
       {
+         bundle.raw_login = login;
+         bundle.raw_password = password;
+
+         c64_set_special_chars("+/");
+
          int raw_len_login = strlen(login);
          int raw_len_password = strlen(password);
          int len_login = c64_encode_required_buffer_length(raw_len_login);
@@ -407,11 +536,11 @@ void use_config_file(const ri_Section *section)
 
          char *buffer = (char*)alloca(len_login);
          c64_encode_to_buffer(login, raw_len_login, (uint32_t*)buffer, len_login);
-         bundle.encodedLogin = buffer;
+         bundle.encoded_login = buffer;
 
          buffer = (char*)alloca(len_password);
          c64_encode_to_buffer(password, raw_len_password, (uint32_t*)buffer, len_password);
-         bundle.encodedPassword = buffer;
+         bundle.encoded_password = buffer;
       }
 
       get_socket(host, port_str, &bundle);
