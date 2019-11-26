@@ -9,6 +9,11 @@ I continue to seek and learn details of the process of sending
 SMTP mail, and the following pages have, or in the future may,
 help me figure this whole thing out.
 
+## SMTP Documnetation
+
+- [SMTP Standard Document](https://tools.ietf.org/html/rfc5321)  
+  There is a lot here.  Links to specific sections are found below.
+
 ## Opening A Socket
 
 The send email through SMTP, a socket must be opened.  One must
@@ -39,3 +44,20 @@ find the IP address of a domain before the socket can be opened.
 ## Interpreting Replys
 
 - [SMTP Reply Codes](https://serversmtp.com/smtp-error/) explains codes likes 354, 250, etc.
+- [Wiki on SMTP Reply Codes](https://en.wikipedia.org/wiki/List_of_SMTP_server_return_codes)
+- [SMTP Standards about replies](https://tools.ietf.org/html/rfc5321#section-4.1.1.1
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+)
