@@ -1,3 +1,6 @@
+#ifndef SOCKTALK_H
+#define SOCKTALK_H
+
 #include <sys/types.h>
 
 #include <sys/socket.h>
@@ -66,3 +69,5 @@ int seek_status_message(const Status_Line* sl, const char *value);
  * @brief Print each link of a Status_Line chain.  Mostly for debugging.
  */
 void show_status_chain(const Status_Line *ls);
+
+#endif
