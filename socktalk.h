@@ -38,7 +38,7 @@ typedef struct _stalker
 } STalker;
 
 /** STalker initialization functions to prepare STalker to call send_line, recv_line. */
-void init_ssh_talker(struct _stalker* talker, SSL* ssl);
+void init_ssl_talker(struct _stalker* talker, SSL* ssl);
 void init_sock_talker(struct _stalker* talker, int socket);
 
 
@@ -49,6 +49,20 @@ size_t stk_send_line(const struct _stalker* talker, ...);
 size_t stk_recv_line(const struct _stalker* talker, void *buffer, int buff_len);
 
 
+/**
+ * @brief Read *str to the next \r\n, setting output parameters *status **line, and *line_len.
+ *
+ * Use this function to parse the data returned from a SMTP server.  Use this
+ * function to walk through the status and print or save the reply messages.
+ */
 int walk_status_reply(const char *str, int *status, const char** line, int *line_len);
 
-int seek_status_message(const struct _status_line* sl, const char *value);
+/**
+ * @brief Given a chain of Status_Line, return 1 if a given message can be found, 0 otherwise.
+ */
+int seek_status_message(const Status_Line* sl, const char *value);
+
+/**
+ * @brief Print each link of a Status_Line chain.  Mostly for debugging.
+ */
+void show_status_chain(const Status_Line *ls);
