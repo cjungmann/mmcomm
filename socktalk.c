@@ -25,7 +25,7 @@ size_t stk_ssl_reader(const struct _stalker* talker, void *buffer, int buff_len)
 }
 
 
-void init_ssh_talker(struct _stalker* talker, SSL* ssl)
+void init_ssl_talker(struct _stalker* talker, SSL* ssl)
 {
    memset(talker, 0, sizeof(struct _stalker));
    talker->ssl_handle = (void*)ssl;
@@ -74,9 +74,15 @@ size_t stk_send_line(const struct _stalker* talker, ...)
    return total_bytes;
 }
 
+/**
+ * @brief Read from server using current communication protocol.  Add \0 to end, if room.
+ */
 size_t stk_recv_line(const struct _stalker* talker, void* buffer, int buff_len)
 {
-   return (*talker->reader)(talker, buffer, buff_len);
+   size_t bytes_read = (*talker->reader)(talker, buffer, buff_len);
+   if (bytes_read+1 < buff_len)
+      ((char*)buffer)[bytes_read] = '\0';
+   return bytes_read;
 }
 
 
@@ -108,7 +114,8 @@ int walk_status_reply(const char *str, int *status, const char** line, int *line
    if (! *ptr)
    {
       fprintf(stderr, "Unexpected end-of-string while parsing status reply.\n");
-      return ptr - str;
+      return -1;
+      /* return ptr - str; */
    }
    else if (*ptr == '\r')
    {
@@ -133,4 +140,13 @@ int seek_status_message(const struct _status_line* sl, const char *value)
    }
 
    return 0;
+}
+
+void show_status_chain(const Status_Line *sl)
+{
+   while (sl)
+   {
+      printf("%d : \"[44;1m%s[m\"\n", sl->status, sl->message);
+      sl = sl->next;
+   }
 }
