@@ -37,17 +37,35 @@ typedef void(*StrVal)(const char *val);
 typedef void(*CB_SSL)(SSL *ssl, Bundle *p_bundle);
 typedef void(*CB_Socket)(int handle_socket, Bundle *p_bundle);
 
+typedef void(*CB_Talker)(STalker *talker, Bundle *p_bundle);
+
 typedef struct bundle
 {
-   const ri_Section *section;
-   const char       *acct;
-   CB_SSL           ssl_user;
-   CB_Socket        socket_user;
-   const char*      raw_login;
-   const char*      encoded_login;
-   const char*      raw_password;
-   const char*      encoded_password;
+   const ri_Section  *section;
+   const char        *acct;
+   CB_Socket         socket_user;
+   CB_Talker         talker_user;
+   const Status_Line *host_status_chain;
+   const char*       raw_login;
+   const char*       encoded_login;
+   const char*       raw_password;
+   const char*       encoded_password;
 } Bundle;
+
+const char *find_config(void)
+{
+   static const char* paths[] = { "~/.mmcomm.conf", "/etc/mmcomm.conf", "./mmcomm.conf", NULL };
+   const char** dname = paths;
+
+   while (*dname)
+   {
+      if (0 == access(*dname, F_OK|R_OK))
+         return *dname;
+      dname++;
+   }
+
+   return NULL;
+}
 
 const char *bundle_value(const Bundle *b, const char *section, const char *tag)
 {
@@ -59,212 +77,45 @@ const char *acct_value(const Bundle *b, const char *tag)
    return ri_find_section_value(b->section, b->acct, tag);
 }
 
-void get_socket(const char *url, const char *service, Bundle *p_bundle)
+void present_ssl_error(int connect_error)
 {
-   struct addrinfo hints;
-   struct addrinfo *result, *rp;
-
-   int exit_value;
-   int socket_handle;
-
-   memset((void*)&hints, 0, sizeof(struct addrinfo));
-   /* hints.ai_family = AF_UNSPEC;    // Allow IP4 or IP6 */
-   hints.ai_family = AF_INET;
-   hints.ai_socktype = SOCK_STREAM;
-   hints.ai_socktype = 0;
-   hints.ai_flags = AI_CANONNAME;
-   hints.ai_protocol = IPPROTO_IP;
-
-   exit_value = getaddrinfo(url, service, &hints, &result);
-
-   if (exit_value==0)
+   const char *msg = NULL;
+   switch(connect_error)
    {
-      // The next statement shows debugging info about the addrinfo object:
-      /* display_addrinfo(result); */
-
-      for (rp = result; rp; rp = rp->ai_next)
-      {
-         socket_handle = socket(rp->ai_family,
-                         rp->ai_socktype,
-                         rp->ai_protocol);
-
-         if (socket_handle == -1)
-            continue;
-
-         if (0 == connect(socket_handle, rp->ai_addr, rp->ai_addrlen))
-         {
-            (*p_bundle->socket_user)(socket_handle, p_bundle);
-            close(socket_handle);
-            break;
-         }
-         else
-            fprintf(stderr, "Connection attempt failed (%s).\n", strerror(errno));
-      }
-
-      freeaddrinfo(result);
-   }
-   else
-   {
-      fprintf(stderr, "getaddrinfo failed \"%s\".\n", gai_strerror(exit_value));
+      case SSL_ERROR_NONE:
+         msg = "SSL_ERROR_NONE";
+         break;
+      case SSL_ERROR_ZERO_RETURN:
+         msg = "SSL_ERROR_ZERO_RETURN";
+         break;
+      case SSL_ERROR_WANT_READ:
+         msg = "SSL_ERROR_WANT_READ";
+         break;
+      case SSL_ERROR_WANT_WRITE:
+         msg = "SSL_ERROR_WANT_WRITE";
+         break;
+      case SSL_ERROR_WANT_CONNECT:
+         msg = "SSL_ERROR_WANT_CONNECT";
+         break;
+      case SSL_ERROR_WANT_ACCEPT:
+         msg = "SSL_ERROR_WANT_ACCEPT";
+         break;
+      case SSL_ERROR_WANT_X509_LOOKUP:
+         msg = "SSL_ERROR_X509_LOOKUP";
+         break;
+      case SSL_ERROR_SYSCALL:
+         msg = "SSL_ERROR_SYSCALL";
+         break;
+      case SSL_ERROR_SSL:
+         msg = "SSL_ERROR_SSL";
+         break;
+      default:
+         msg = "unrecognized ssl error_";
+         break;
    }
 
-}
-
-void use_socket(int socket_handle, Bundle *p_bundle)
-{
-   printf("Got a socket. Doin' nothin' with it.\n");
-}
-
-void use_socket_for_email(int socket_handle, Bundle *p_bundle)
-{
-   size_t bytes_read = 0;
-   size_t bytes_written = 0;
-   size_t total_read = 0;
-   char buffer[1024];
-
-   // Variables for parsing status reply string
-   const char *bptr;
-   int chars_to_advance;
-   int status_code;
-   const char *cur_line;
-   int line_len;
-   STalker *stalker = (STalker *)alloca(sizeof(STalker));
-   init_sock_talker(stalker, socket_handle);
-
-   // Anchor to status reply chain:
-   struct _status_line *sl_anchor = NULL, *sl_tail = NULL;
-   struct _status_line *status_line = NULL;
-   char *temp_message;
-
-   const char *host = acct_value(p_bundle, "host");
-
-   total_read += bytes_read = stk_recv_line(stalker, buffer, sizeof(buffer));
-
-   status_code = atoi(buffer);
-   if (status_code >=200 && status_code < 300)
-   {
-      bytes_written += stk_send_line(stalker, "EHLO ", host, NULL);
-      total_read += bytes_read = stk_recv_line(stalker, buffer, sizeof(buffer));
-
-      bptr = buffer;
-      while (*bptr)
-      {
-         chars_to_advance = walk_status_reply(bptr, &status_code, &cur_line, &line_len);
-         if (chars_to_advance == 0)
-            break;
-         else
-         {
-            status_line = (Status_Line*)alloca(sizeof(Status_Line));
-            memset(status_line, 0, sizeof(Status_Line));
-
-            // Allocate, and copy to new memory, the current message line:
-            temp_message = (char*)alloca(1 + line_len);
-            memcpy(temp_message, cur_line, line_len);
-            temp_message[line_len] = '\0';
-
-            status_line->status = status_code;
-            status_line->message = temp_message;
-
-            if (sl_tail)
-            {
-               sl_tail->next = status_line;
-               sl_tail = status_line;
-            }
-            else
-               sl_tail = sl_anchor = status_line;
-
-            /* printf("%d : %.*s\n", status_code, line_len, cur_line); */
-            bptr += chars_to_advance;
-         }
-      }
-
-
-      Status_Line *clptr = sl_anchor;
-      while (clptr)
-      {
-         printf("%d : \"[44;1m%s[m\"\n", clptr->status, clptr->message);
-         clptr = clptr->next;
-      }
-
-
-      printf("Socket returned [44;1m%.*s[m\n", (int)bytes_read, buffer);
-   }
-}
-
-
-/**
- * @brief **use_socket** target for 
- */
-void start_ssl(int socket_handle, Bundle *p_bundle)
-{
-   const SSL_METHOD *method;
-   SSL_CTX *context;
-   SSL *ssl;
-   int connect_outcome;
-
-   OpenSSL_add_all_algorithms();
-   /* ERR_load_BIO_strings(); */
-   ERR_load_crypto_strings();
-   SSL_load_error_strings();
-
-   /* OPENSSL_config(NULL); */
-
-   SSL_library_init();
-
-   method = SSLv23_client_method();
-   if (method)
-   {
-      context = SSL_CTX_new(method);
-
-      if (context)
-      {
-         // Following two not included in most recent example code I found.
-         // It may be appropriate to uncomment these lines as I learn more.
-         /* SSL_CTX_set_verify(context, SSL_VERIFY_PEER, NULL); */
-         /* SSL_CTX_set_verify_depth(context, 4); */
-
-         // We could set some flags, but I'm not doing it until I need to and I understand 'em
-         /* const long CTX_flags = SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_COMPRESSION; */
-         /* SSL_CTX_set_options(context, CTX_flags); */
-         SSL_CTX_set_options(context, SSL_OP_NO_SSLv2);
-
-         ssl = SSL_new(context);
-         if (ssl)
-         {
-            SSL_set_fd(ssl, socket_handle);
-
-            connect_outcome = SSL_connect(ssl);
-
-            if (connect_outcome == 1)
-               // Successful Connection: call SSL user:
-               (*p_bundle->ssl_user)(ssl, p_bundle);
-            else if (connect_outcome == 0)
-               // failed with controlled shutdown
-               fprintf(stderr, "SSL connection failed and cleaned up.\n");
-            else
-            {
-               fprintf(stderr, "[32;1mFailed to get an SSL connection (%d).[m\n", connect_outcome);
-               ERR_print_errors_fp(stderr);
-            }
-
-            SSL_free(ssl);
-         }
-         else  // failed to get an SSL
-         {
-            fprintf(stderr, "[32;1mFailed to get an SSL object.[m\n");
-            ERR_print_errors_fp(stderr);
-         }
-
-         SSL_CTX_free(context);
-      }
-      else // failed to get a context
-      {
-         fprintf(stderr, "[32;1mFailed to get an SSL context.[m\n");
-         ERR_print_errors_fp(stderr);
-      }
-   }
-   else
-      fprintf(stderr, "Failed to get SSL method.\n");
+   if (msg)
+      fprintf(stderr, "Failed to make SSL connection (%s).\n", msg);
 }
 
 void print_message(SSL *ssl, ...)
@@ -434,73 +285,248 @@ int request_email_permission(SSL *ssl, const char *to,  Bundle *p_bundle)
    return 0;
 }
 
-void use_ssl(SSL *ssl, Bundle *p_bundle)
+/**
+ * @brief Temporary, debugging callback to confirm that start_ssl() has worked.
+ */
+void use_talker_for_email(STalker *talker, Bundle *p_bundle)
 {
-   char message[1024];
-   int bytes_to_write, bytes_read;
+   printf("Got to the talker routine.  Everything should be prepared\n"
+          "to commence a conversation with the SMTP server.\n");
+}
 
-   const char *from, *to, *subject;
+/**
+ * @brief Initialize SSL session with a socket if the SMTP server requests it.
+ */
+void start_ssl(int socket_handle, Bundle *p_bundle)
+{
+   const SSL_METHOD *method;
+   SSL_CTX *context;
+   SSL *ssl;
+   int connect_outcome;
 
-   const char *format = "From: %s\r\n"
-      "To: %s\r\n"
-      "Subject: %s\r\n"
-      "\r\n"
-      "This is a new email message.\r\n"
-      "It has a few lines of test,\r\n"
-      "but it will be merged into a\r\n"
-      "single block of stack memory\r\n"
-      "for submission to an SMTP\r\n"
-      "server.\r\n"
-      ".\r\n";
+   OpenSSL_add_all_algorithms();
+   /* ERR_load_BIO_strings(); */
+   ERR_load_crypto_strings();
+   SSL_load_error_strings();
 
-   printf("Got a SSL handle.\n");
+   /* OPENSSL_config(NULL); */
 
-   if (greet_server(ssl, p_bundle))
+   SSL_library_init();
+
+   method = SSLv23_client_method();
+   if (method)
    {
-      to = "chuck@cpjj.net";
+      context = SSL_CTX_new(method);
 
-      if (request_email_permission(ssl, to, p_bundle))
+      if (context)
       {
-         // Composing email
-         from = acct_value(p_bundle, "from");
-         subject = "Test email from mmcomm, a C-language mailer";
+         // Following two not included in most recent example code I found.
+         // It may be appropriate to uncomment these lines as I learn more.
+         /* SSL_CTX_set_verify(context, SSL_VERIFY_PEER, NULL); */
+         /* SSL_CTX_set_verify_depth(context, 4); */
 
-         bytes_to_write = sprintf(message, format, from, to, subject);
-         SSL_write(ssl, message, bytes_to_write);
-         bytes_read = SSL_read(ssl, message, sizeof(message));
+         // We could set some flags, but I'm not doing it until I need to and I understand 'em
+         /* const long CTX_flags = SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_COMPRESSION; */
+         /* SSL_CTX_set_options(context, CTX_flags); */
+         SSL_CTX_set_options(context, SSL_OP_NO_SSLv2);
 
-         if (p_bundle->encoded_login)
+         ssl = SSL_new(context);
+         if (ssl)
          {
+            SSL_set_fd(ssl, socket_handle);
+
+            connect_outcome = SSL_connect(ssl);
+
+            if (connect_outcome == 1)
+            {
+               STalker talker;
+               init_ssl_talker(&talker, ssl);
+               (*p_bundle->talker_user)(&talker, p_bundle);
+            }
+            else if (connect_outcome == 0)
+               // failed with controlled shutdown
+               fprintf(stderr, "SSL connection failed and cleaned up.\n");
+            else
+            {
+               present_ssl_error(SSL_get_error(ssl, connect_outcome));
+               ERR_print_errors_fp(stderr);
+            }
+
+            SSL_free(ssl);
+         }
+         else  // failed to get an SSL
+         {
+            fprintf(stderr, "[32;1mFailed to get an SSL object.[m\n");
+            ERR_print_errors_fp(stderr);
          }
 
-         message[bytes_read] = '\0';
-         printf("%s\n", message);
+         SSL_CTX_free(context);
+      }
+      else // failed to get a context
+      {
+         fprintf(stderr, "[32;1mFailed to get an SSL context.[m\n");
+         ERR_print_errors_fp(stderr);
       }
    }
+   else
+      fprintf(stderr, "Failed to get SSL method.\n");
 }
 
+/**
+ * @brief Initialize conversation with SMTP server, get EHLO (extended HELO) capabilities
+ *        in preparation to commence email transactions.
+ */
 
-void display_address(const char *str)
+void use_socket_for_email(int socket_handle, Bundle *p_bundle)
 {
-   printf("The string is \"%s\"\n", str);
-}
+   size_t bytes_read = 0;
+   size_t bytes_written = 0;
+   size_t total_read = 0;
+   char buffer[1024];
 
+   // Variables for parsing status reply string
+   const char *bptr;
+   int chars_to_advance;
+   int status_code;
+   const char *cur_line;
+   int line_len;
+   STalker *stalker = (STalker *)alloca(sizeof(STalker));
+   init_sock_talker(stalker, socket_handle);
 
-const char *find_config(void)
-{
-   static const char* paths[] = { "~/.mmcomm.conf", "/etc/mmcomm.conf", "./mmcomm.conf", NULL };
-   const char** dname = paths;
+   // Anchor to status reply chain:
+   struct _status_line *sl_anchor = NULL, *sl_tail = NULL;
+   struct _status_line *status_line = NULL;
+   char *temp_message;
 
-   while (*dname)
+   const char *host = acct_value(p_bundle, "host");
+
+   total_read += bytes_read = stk_recv_line(stalker, buffer, sizeof(buffer));
+
+   status_code = atoi(buffer);
+   if (status_code >=200 && status_code < 300)
    {
-      if (0 == access(*dname, F_OK|R_OK))
-         return *dname;
-      dname++;
-   }
+      bytes_written += stk_send_line(stalker, "EHLO ", host, NULL);
+      total_read += bytes_read = stk_recv_line(stalker, buffer, sizeof(buffer));
 
-   return NULL;
+      bptr = buffer;
+      while (*bptr)
+      {
+         chars_to_advance = walk_status_reply(bptr, &status_code, &cur_line, &line_len);
+         if (chars_to_advance == 0)
+            break;
+         else if (chars_to_advance == -1)
+         {
+            printf("Error walking status reply [44;1m%s[m.\n", buffer);
+            break;
+         }
+         else
+         {
+            status_line = (Status_Line*)alloca(sizeof(Status_Line));
+            memset(status_line, 0, sizeof(Status_Line));
+
+            // Allocate, and copy to new memory, the current message line:
+            temp_message = (char*)alloca(1 + line_len);
+            memcpy(temp_message, cur_line, line_len);
+            temp_message[line_len] = '\0';
+
+            status_line->status = status_code;
+            status_line->message = temp_message;
+
+            if (sl_tail)
+            {
+               sl_tail->next = status_line;
+               sl_tail = status_line;
+            }
+            else
+               sl_tail = sl_anchor = status_line;
+
+            bptr += chars_to_advance;
+         }
+      }
+
+      p_bundle->host_status_chain = sl_anchor;
+
+      if (seek_status_message(sl_anchor, "STARTTLS"))
+      {
+         // If STARTTLS is available, we must send a request
+         // to begin TLS mode.
+         bytes_written += stk_send_line(stalker, "STARTTLS", NULL);
+         total_read += bytes_read = stk_recv_line(stalker, buffer, sizeof(buffer));
+
+         // Only continue if the TLS request was granted:
+         status_code = atoi(buffer);
+         if (status_code >= 200 && status_code < 300)
+            start_ssl(socket_handle, p_bundle);
+         else
+            fprintf(stderr, "STARTTLS request denied (%s).\n", buffer);
+      }
+      else
+      {
+         STalker talker;
+         init_sock_talker(&talker, socket_handle);
+         (*p_bundle->talker_user)(&talker, p_bundle);
+      }
+
+      /* show_status_chain(sl_anchor); */
+   }
 }
 
+/**
+ * @brief Open a socket at a URL and service, pass newly open socket to next step.
+ */
+void get_socket(const char *url, const char *service, Bundle *p_bundle)
+{
+   struct addrinfo hints;
+   struct addrinfo *result, *rp;
+
+   int exit_value;
+   int socket_handle;
+
+   memset((void*)&hints, 0, sizeof(struct addrinfo));
+   /* hints.ai_family = AF_UNSPEC;    // Allow IP4 or IP6 */
+   hints.ai_family = AF_INET;
+   hints.ai_socktype = SOCK_STREAM;
+   hints.ai_socktype = 0;
+   hints.ai_flags = AI_CANONNAME;
+   hints.ai_protocol = IPPROTO_IP;
+
+   exit_value = getaddrinfo(url, service, &hints, &result);
+
+   if (exit_value==0)
+   {
+      // The next statement shows debugging info about the addrinfo object:
+      /* display_addrinfo(result); */
+
+      for (rp = result; rp; rp = rp->ai_next)
+      {
+         socket_handle = socket(rp->ai_family,
+                         rp->ai_socktype,
+                         rp->ai_protocol);
+
+         if (socket_handle == -1)
+            continue;
+
+         if (0 == connect(socket_handle, rp->ai_addr, rp->ai_addrlen))
+         {
+            (*p_bundle->socket_user)(socket_handle, p_bundle);
+            close(socket_handle);
+            break;
+         }
+         else
+            fprintf(stderr, "Connection attempt failed (%s).\n", strerror(errno));
+      }
+
+      freeaddrinfo(result);
+   }
+   else
+   {
+      fprintf(stderr, "getaddrinfo failed \"%s\".\n", gai_strerror(exit_value));
+   }
+}
+
+/**
+ * @brief Use values from config file to begin the SMTP connection.
+ */
 void use_config_file(const ri_Section *section)
 {
    const char *acct, *host, *port_str;
@@ -512,9 +538,9 @@ void use_config_file(const ri_Section *section)
    if (acct)
    {
       bundle.section = section;
-      bundle.ssl_user = use_ssl;
       /* bundle.socket_user = start_ssl; */
       bundle.socket_user = use_socket_for_email;
+      bundle.talker_user = use_talker_for_email;
       bundle.acct = acct;
 
       host = acct_value(&bundle, "host");
@@ -547,20 +573,8 @@ void use_config_file(const ri_Section *section)
    }
 }
 
-/**
- * @brief Keeping socket-only calls around for testing.
- */
-void simple_socket_test()
-{
-   Bundle bundle;
-   memset(&bundle, 0, sizeof(Bundle));
-   bundle.socket_user = use_socket;
 
-   get_socket("smtp.gmail.com", "587" , &bundle );
-   get_socket("smtp.gmail.com", "587" , &bundle);
-   get_socket("www.cnn.com", "80" , &bundle);
-}
-
+#include "disposable.c"
 
 int main(int argc, char **argv)
 {
