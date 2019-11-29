@@ -14,6 +14,11 @@ help me figure this whole thing out.
 - [SMTP Standard Document](https://tools.ietf.org/html/rfc5321)  
   There is a lot here.  Links to specific sections are found below.
 
+- [Enhanced SMTP Status Codes](https://tools.ietf.org/html/rfc3463)  
+  In enhanced SMTP (greeting server with EHLO instead of HELO),
+  there may be additional status information following the status
+  code.  This document defines the protocol.
+
 ## Opening A Socket
 
 The send email through SMTP, a socket must be opened.  One must
@@ -45,19 +50,4 @@ find the IP address of a domain before the socket can be opened.
 
 - [SMTP Reply Codes](https://serversmtp.com/smtp-error/) explains codes likes 354, 250, etc.
 - [Wiki on SMTP Reply Codes](https://en.wikipedia.org/wiki/List_of_SMTP_server_return_codes)
-- [SMTP Standards about replies](https://tools.ietf.org/html/rfc5321#section-4.1.1.1
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-)
+- [SMTP Standards about replies](https://tools.ietf.org/html/rfc5321#section-4.1.1.1)
