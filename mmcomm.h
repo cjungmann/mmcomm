@@ -66,7 +66,7 @@ void present_ssl_error(int connect_error);
 
 
 /** Construct and submit an email header. */
-int send_email_header(STalker *talker, const char *to,  Bundle *p_bundle);
+int prepare_email_envelope(STalker *talker, const char *to,  Bundle *p_bundle);
 
 /** Send base46-encoded login and password to server and return success. */
 int check_authentication(STalker *talker, Bundle *p_bundle);

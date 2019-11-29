@@ -173,7 +173,7 @@ void present_ssl_error(int connect_error)
       fprintf(stderr, "Failed to make SSL connection (%s).\n", msg);
 }
 
-int send_email_header(STalker *talker, const char *to,  Bundle *p_bundle)
+int prepare_email_envelope(STalker *talker, const char *to,  Bundle *p_bundle)
 {
    char buffer[1024];
 
@@ -192,6 +192,7 @@ int send_email_header(STalker *talker, const char *to,  Bundle *p_bundle)
       if (reply_is_good_stderr(buffer, bytes_read, "rcpt_to"))
       {
          bytes_sent += stk_send_line(talker, "DATA", NULL);
+
          bytes_read = stk_recv_line(talker, buffer, sizeof(buffer));
          smtp_reply = get_reply_int(buffer);
          if (smtp_reply == 354)
@@ -216,6 +217,7 @@ int check_authentication(STalker *talker, Bundle *p_bundle)
    char buffer[1000];
    stk_send_line(talker, "AUTH LOGIN", NULL);
    bytes_read = stk_recv_line(talker, buffer, sizeof(buffer));
+   printf("AUTH LOGIN response: %.*s.\n", (int)bytes_read, buffer);
    if (reply_auth_is_good_stderr(buffer, bytes_read, "Request AUTH LOGIN"))
    {
       stk_send_line(talker, login_str, NULL);
@@ -232,31 +234,33 @@ int check_authentication(STalker *talker, Bundle *p_bundle)
    return 0;
 }
 
-
-
 /**
  * @brief Temporary, debugging callback to confirm that start_ssl() has worked.
  */
 void use_talker_for_email(STalker *talker, Bundle *p_bundle)
 {
-   char buffer[1024];
-   const char *host = acct_value(p_bundle, "host");
-   stk_send_line(talker, "EHLO ", host, NULL);
-   stk_recv_line(talker, buffer, sizeof(buffer));
-
-   dump_status_reply(buffer, sizeof(buffer));
- 
    const char *send_to = "chuck@cpjj.net";
    if (check_authentication(talker, p_bundle));
    {
-      if (send_email_header(talker, send_to, p_bundle))
+      fprintf(stderr,  "Sending email header.\n");
+      if (prepare_email_envelope(talker, send_to, p_bundle))
       {
+         fprintf(stderr, "Sending subject\n");
+         if (!stk_send_recv_line(talker, "SUBJECT: Test", NULL))
+            return;
+
+         fprintf(stderr, "Sending line 1\n");
+         if (!stk_send_recv_line(talker, "This is a new email. Yay.", NULL))
+            return;
+
+         fprintf(stderr, "Sending line 2\n");
+         if (!stk_send_recv_line(talker, "This is the second line of the email. Yay.", NULL))
+            return;
+
+         fprintf(stderr, "Sending extra newline\n");
+         stk_send_recv_line(talker, ".",  NULL);
       }
    }
-
-
-   printf("Got to the talker routine.  Everything should be prepared\n"
-          "to commence a conversation with the SMTP server.\n");
 }
 
 void start_ssl(int socket_handle, Bundle *p_bundle)
@@ -408,6 +412,8 @@ void use_socket_for_email(int socket_handle, Bundle *p_bundle)
          }
       }
 
+      show_status_chain(sl_anchor);
+
       p_bundle->host_status_chain = sl_anchor;
 
       if (seek_status_message(sl_anchor, "STARTTLS"))
@@ -430,8 +436,6 @@ void use_socket_for_email(int socket_handle, Bundle *p_bundle)
          init_sock_talker(&talker, socket_handle);
          (*p_bundle->talker_user)(&talker, p_bundle);
       }
-
-      show_status_chain(sl_anchor);
    }
 }
 
