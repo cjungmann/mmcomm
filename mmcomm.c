@@ -27,30 +27,95 @@
 #include <code64.h>     // base64 encoding for username and password
 
 #include "socktalk.h"
+#include "mmcomm.h"
 
-// Prototype to make available for function pointer typedefs
-typedef struct bundle Bundle;
 
-/* Typedefs of callback function pointers: */
-typedef void(*StrVal)(const char *val);
-
-typedef void(*CB_SSL)(SSL *ssl, Bundle *p_bundle);
-typedef void(*CB_Socket)(int handle_socket, Bundle *p_bundle);
-
-typedef void(*CB_Talker)(STalker *talker, Bundle *p_bundle);
-
-typedef struct bundle
+const char *bundle_value(const Bundle *b, const char *section, const char *tag)
 {
-   const ri_Section  *section;
-   const char        *acct;
-   CB_Socket         socket_user;
-   CB_Talker         talker_user;
-   const Status_Line *host_status_chain;
-   const char*       raw_login;
-   const char*       encoded_login;
-   const char*       raw_password;
-   const char*       encoded_password;
-} Bundle;
+   return ri_find_section_value(b->section, section, tag);
+}
+
+const char *acct_value(const Bundle *b, const char *tag)
+{
+   return ri_find_section_value(b->section, b->acct, tag);
+}
+
+int get_reply_int(const char *buffer)
+{
+   int value = -1;
+   if (isdigit(buffer[0])
+       && isdigit(buffer[1])
+       && isdigit(buffer[2])
+       && ( buffer[3] == '-' || isspace(buffer[3])) )
+   {
+      value = 100 * (buffer[0] - '0');
+      value += 10 * (buffer[1] - '0');
+      value += (buffer[2] - '0');
+   }
+
+   return value;
+}
+
+int reply_is_good(char *buffer)
+{
+   int value = get_reply_int(buffer);
+   return (value >= 200 && value < 300);
+}
+
+int reply_is_good_stderr(char *buffer, int message_length, const char *description)
+{
+   if (reply_is_good(buffer))
+   {
+      fprintf(stderr, "(%s) The reply was good for %d characters.\n", description, message_length);
+      printf("%.*s\n", message_length, buffer);
+      return 1;
+   }
+   else
+   {
+      fprintf(stderr, "(%s) The server responded with %d characters.\n", description, message_length);
+      buffer[message_length] = '\0';
+      fprintf(stderr, "Error during **%s**: \"[44;1m%s[m\"", description, buffer);
+      return 0;
+   }
+}
+
+int reply_auth_is_good_stderr(char *buffer, int message_length, const char *description)
+{
+   int advance_chars;
+
+   int status;
+   const char *line;
+   int line_len;
+
+   int success = 0;
+
+   const char *ptr = buffer;
+   while (*ptr)
+   {
+      advance_chars = walk_status_reply(ptr, &status, &line, &line_len);
+      switch(advance_chars)
+      {
+         case -1:
+            fprintf(stderr, "Error processing replys \"%s\".\n", buffer);
+         case 0:
+            ptr = "";
+            break;
+         default:
+            if (status == 334)
+            {
+               // decode message, call new socktalk function?
+               success = 1;
+            }
+            else
+               printf("Auth response: (%d) [44;1m%.*s[m.\n", status, line_len, line);
+
+            ptr += advance_chars;
+            break;
+      }
+   }
+
+   return success;
+}
 
 const char *find_config(void)
 {
@@ -65,16 +130,6 @@ const char *find_config(void)
    }
 
    return NULL;
-}
-
-const char *bundle_value(const Bundle *b, const char *section, const char *tag)
-{
-   return ri_find_section_value(b->section, section, tag);
-}
-
-const char *acct_value(const Bundle *b, const char *tag)
-{
-   return ri_find_section_value(b->section, b->acct, tag);
 }
 
 void present_ssl_error(int connect_error)
@@ -118,159 +173,26 @@ void present_ssl_error(int connect_error)
       fprintf(stderr, "Failed to make SSL connection (%s).\n", msg);
 }
 
-void print_message(SSL *ssl, ...)
-{
-   int line_count, char_count;
-   int found_end_of_headers = 0;
-   va_list ap;
-   va_start(ap, ssl);
-   const char *line;
-
-   line_count = 0;
-   char_count = 0;
-
-   line = va_arg(ap, const char*);
-   while(line)
-   {
-      // Count all lines, even blank line between header and body:
-      ++line_count;
-      
-      // Do not count the first "--", which
-      // indicates the end of header information.
-      if (!found_end_of_headers && 0==strcmp(line, "--"))
-         found_end_of_headers = 1;
-      else
-         char_count += strlen(line);
-
-      line = va_arg(ap, const char*);
-   }
-
-   va_end(ap);
-
-   // Allowance for /r/n at end of each line:
-   char_count += (line_count * 2);
-
-   printf("The message would have had %d lines and a total of %d characters.\n",
-          line_count,
-          char_count);
-}
-
-int get_reply_int(const char *buffer)
-{
-   int value = -1;
-   if (isdigit(buffer[0]) && isdigit(buffer[1]) && isdigit(buffer[2]) && isspace(buffer[3]))
-   {
-      value = 100 * (buffer[0] - '0');
-      value += 10 * (buffer[1] - '0');
-      value += (buffer[2] - '0');
-   }
-
-   return value;
-}
-
-int reply_is_good(char *buffer)
-{
-   int value = get_reply_int(buffer);
-   return (value >= 200 && value < 300);
-}
-
-int reply_is_good_stderr(char *buffer, int message_length, const char *description)
-{
-   if (reply_is_good(buffer))
-   {
-      fprintf(stderr, "(%s) The reply was good for %d characters.\n", description, message_length);
-      printf("%.*s\n", message_length, buffer);
-      return 1;
-   }
-   else
-   {
-      fprintf(stderr, "(%s) The server responded with %d characters.\n", description, message_length);
-      buffer[message_length] = '\0';
-      fprintf(stderr, "Error during **%s**: \"[44;1m%s[m\"", description, buffer);
-      return 0;
-   }
-}
-
-void send_message(SSL *ssl, const char *message, char *response, int response_length)
-{
-   fprintf(stderr, "sending [33;1m%s[m.  ", message);
-   int b_sent = SSL_write(ssl, message, strlen(message));
-   b_sent += SSL_write(ssl, "\r\n", 2);
-   fprintf(stderr, " sent %d bytes.\n", b_sent);
-
-   SSL_read(ssl, response, response_length);
-}
-
-int send_authentication(SSL *ssl, Bundle *p_bundle)
-{
-   const char *login_str = p_bundle->encoded_login;
-   const char *pword_str = p_bundle->encoded_password;
-
-   /* const char *login_str = p_bundle->raw_login; */
-   /* const char *pword_str = p_bundle->raw_password; */
-
-   char buffer[1000];
-   send_message(ssl, "AUTH LOGIN", buffer, sizeof(buffer));
-   printf("After auth_login:  [33;1m%s[m\n", buffer);
-   send_message(ssl, login_str, buffer, sizeof(buffer));
-   printf("After login sent:  [33;1m%s[m\n", buffer);
-   send_message(ssl, pword_str, buffer, sizeof(buffer));
-   printf("After password sent:  [33;1m%s[m\n", buffer);
-
-   return 1;
-}
-
-int greet_server(SSL *ssl, Bundle *p_bundle)
-{
-   const char *host = acct_value(p_bundle, "host");
-
-   char buffer[2048];
-   int message_length;
-   int bytes_written = 0, bytes_read = 0;
-
-   if (host)
-   {
-      /* message_length = sprintf(buffer, "HELO %s\r\n", host); */
-      message_length = sprintf(buffer, "EHLO %s\r\n", host);
-      bytes_written += SSL_write(ssl, buffer, message_length);
-      if (bytes_written == message_length)
-      {
-         bytes_read += SSL_read(ssl, buffer, sizeof(buffer));
-         fprintf(stderr, "After HELO, [45;1m%s[m.\n", buffer);
-
-         if (p_bundle->encoded_login)
-            return send_authentication(ssl, p_bundle);
-         else if (reply_is_good(buffer))
-            return 1;
-         /* return reply_is_good_stderr(buffer, bytes_read, "server greeting"); */
-      }
-   }
-
-   return 0;
-}
-
-int request_email_permission(SSL *ssl, const char *to,  Bundle *p_bundle)
+int send_email_header(STalker *talker, const char *to,  Bundle *p_bundle)
 {
    char buffer[1024];
 
    int smtp_reply;
-   int bytes_sent = 0, bytes_read = 0, bytes_to_send;
+   int bytes_sent = 0, bytes_read = 0;
    const char *from = acct_value(p_bundle, "from");
 
-   bytes_to_send = sprintf(buffer, "MAIL FROM:<%s>\r\n", from);
-   bytes_sent += SSL_write(ssl, buffer, bytes_to_send);
+   bytes_sent += stk_send_line(talker, "MAIL FROM: <", from, ">", NULL);
+   bytes_read = stk_recv_line(talker, buffer, sizeof(buffer));
 
-   bytes_read = SSL_read(ssl, buffer, sizeof(buffer));
    if (reply_is_good_stderr(buffer, bytes_read, "mail_from"))
    {
-      bytes_to_send = sprintf(buffer, "RCPT TO:<%s>\r\n", to);
-      bytes_sent += SSL_write(ssl, buffer, bytes_to_send);
+      bytes_sent += stk_send_line(talker, "RCPT TO: <", to, ">", NULL);
+      bytes_read = stk_recv_line(talker, buffer, sizeof(buffer));
 
-      bytes_read = SSL_read(ssl, buffer, sizeof(buffer));
       if (reply_is_good_stderr(buffer, bytes_read, "rcpt_to"))
       {
-         bytes_sent += SSL_write(ssl, "DATA\r\n", 6);
-         bytes_read = SSL_read(ssl, buffer, sizeof(buffer));
+         bytes_sent += stk_send_line(talker, "DATA", NULL);
+         bytes_read = stk_recv_line(talker, buffer, sizeof(buffer));
          smtp_reply = get_reply_int(buffer);
          if (smtp_reply == 354)
             return 1;
@@ -285,18 +207,58 @@ int request_email_permission(SSL *ssl, const char *to,  Bundle *p_bundle)
    return 0;
 }
 
+int check_authentication(STalker *talker, Bundle *p_bundle)
+{
+   const char *login_str = p_bundle->encoded_login;
+   const char *pword_str = p_bundle->encoded_password;
+   size_t bytes_read = 0;
+
+   char buffer[1000];
+   stk_send_line(talker, "AUTH LOGIN", NULL);
+   bytes_read = stk_recv_line(talker, buffer, sizeof(buffer));
+   if (reply_auth_is_good_stderr(buffer, bytes_read, "Request AUTH LOGIN"))
+   {
+      stk_send_line(talker, login_str, NULL);
+      bytes_read = stk_recv_line(talker, buffer, sizeof(buffer));
+      if (reply_auth_is_good_stderr(buffer, bytes_read, "Authorization, sent login"))
+      {
+         stk_send_line(talker, pword_str, NULL);
+         bytes_read = stk_recv_line(talker, buffer, sizeof(buffer));
+         if (reply_is_good_stderr(buffer, bytes_read, "Authorization, sent password"))
+            return 1;
+      }
+   }
+
+   return 0;
+}
+
+
+
 /**
  * @brief Temporary, debugging callback to confirm that start_ssl() has worked.
  */
 void use_talker_for_email(STalker *talker, Bundle *p_bundle)
 {
+   char buffer[1024];
+   const char *host = acct_value(p_bundle, "host");
+   stk_send_line(talker, "EHLO ", host, NULL);
+   stk_recv_line(talker, buffer, sizeof(buffer));
+
+   dump_status_reply(buffer, sizeof(buffer));
+ 
+   const char *send_to = "chuck@cpjj.net";
+   if (check_authentication(talker, p_bundle));
+   {
+      if (send_email_header(talker, send_to, p_bundle))
+      {
+      }
+   }
+
+
    printf("Got to the talker routine.  Everything should be prepared\n"
           "to commence a conversation with the SMTP server.\n");
 }
 
-/**
- * @brief Initialize SSL session with a socket if the SMTP server requests it.
- */
 void start_ssl(int socket_handle, Bundle *p_bundle)
 {
    const SSL_METHOD *method;
@@ -387,9 +349,11 @@ void use_socket_for_email(int socket_handle, Bundle *p_bundle)
    // Variables for parsing status reply string
    const char *bptr;
    int chars_to_advance;
+
    int status_code;
    const char *cur_line;
    int line_len;
+
    STalker *stalker = (STalker *)alloca(sizeof(STalker));
    init_sock_talker(stalker, socket_handle);
 
@@ -467,7 +431,7 @@ void use_socket_for_email(int socket_handle, Bundle *p_bundle)
          (*p_bundle->talker_user)(&talker, p_bundle);
       }
 
-      /* show_status_chain(sl_anchor); */
+      show_status_chain(sl_anchor);
    }
 }
 
@@ -572,9 +536,6 @@ void use_config_file(const ri_Section *section)
       get_socket(host, port_str, &bundle);
    }
 }
-
-
-#include "disposable.c"
 
 int main(int argc, char **argv)
 {
