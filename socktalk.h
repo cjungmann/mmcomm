@@ -37,7 +37,6 @@ typedef struct _stalker
    int        socket_handle;
    SockWriter writer;
    SockReader reader;
-   
 } STalker;
 
 /** STalker initialization functions to prepare STalker to call send_line, recv_line. */
@@ -59,6 +58,11 @@ size_t stk_recv_line(const struct _stalker* talker, void *buffer, int buff_len);
  * function to walk through the status and print or save the reply messages.
  */
 int walk_status_reply(const char *str, int *status, const char** line, int *line_len);
+
+/**
+ * @brief Debugging function that also illustrates simple use of walk_status_reply().
+ */
+void dump_status_reply(const char *buffer, int buffer_len);
 
 /**
  * @brief Given a chain of Status_Line, return 1 if a given message can be found, 0 otherwise.

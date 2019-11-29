@@ -130,6 +130,36 @@ int walk_status_reply(const char *str, int *status, const char** line, int *line
    return ptr - str;
 }
 
+void dump_status_reply(const char *buffer, int buffer_len)
+{
+   const char *ptr = buffer;
+   const char *end = buffer  + buffer_len;
+
+   int advance_chars;
+
+   // walk_status_reply() output parameter variables
+   int status;
+   const char *line;
+   int line_len;
+   
+   while (ptr < end && *ptr)
+   {
+      advance_chars = walk_status_reply(buffer, &status, &line, &line_len);
+      switch(advance_chars)
+      {
+         case -1:
+            fprintf(stderr, "Error processing replys from \"%s\"\n", buffer);
+         case 0:
+            ptr = end;  // Flag to break outer loop
+            break;
+         default:
+            printf("%d : %.*s.\n", status, line_len, line);
+            ptr += advance_chars;
+            break;
+      }
+   }
+}
+
 int seek_status_message(const struct _status_line* sl, const char *value)
 {
    while (sl)
