@@ -51,13 +51,64 @@ int get_reply_int(const char *buffer);
 /** Boolean function to confirm successful reply. */
 int reply_is_good(char *buffer);
 /** Also returns 1 or 0 for success or failure, but also prints a message to stderr. */
-int reply_is_good_stderr(char *buffer, int message_length, const char *description)
-
-
+int reply_is_good_stderr(char *buffer, int message_length, const char *description);
+/** Specifically processes authorization reply messages. */
+int reply_auth_is_good_stderr(char *buffer, int message_length, const char *description);
 
 /** Locate the configuration file, searching several places. */
 const char *find_config(void);
 /** Debugging function to convert an integer SSL error to a string. */
 void present_ssl_error(int connect_error);
+
+/**
+ * Beginning of functions that establish the SMTP connection:
+ */
+
+
+/** Construct and submit an email header. */
+int send_email_header(STalker *talker, const char *to,  Bundle *p_bundle);
+
+/** Send base46-encoded login and password to server and return success. */
+int check_authentication(STalker *talker, Bundle *p_bundle);
+
+/** Work-in-progress function to end up while testing SMTP connection. */
+void use_talker_for_email(STalker *talker, Bundle *p_bundle);
+
+/** Initialize SSL session with an already-open socket. */
+void start_ssl(int socket_handle, Bundle *p_bundle);
+
+/** First action after opening a socket.  Begins negotiation for connection type. */
+void use_socket_for_email(int socket_handle, Bundle *p_bundle);
+
+/** Create a socket that is the passed to the socket_user function in bundle. */
+void get_socket(const char *url, const char *service, Bundle *p_bundle);
+
+/** Callback function that consumes settings in a configuration file to call get_socket(). */
+void use_config_file(const ri_Section *section);
+
+/**
+ * The order of function invocation is the reverse of the above functions:
+ * 1. Call config reader (library function), which calls ...
+ * 2. use_config_file() to determine socket address, which calls ...
+ * 3. get_socket(), which opens a socket at an address and port,
+ *    and upon success, builds a STalker object to communicate
+ *    with the server, continues by invoking a function pointer
+ *    in Bundle, `socket_user`, which currently is ...
+ * 4. use_socket_for_email(), calls the SMTP server with EHLO to
+ *    determine requirements and capabilities.  After this,
+ *    processing ultimately continues by calling the `talker_user`
+ *    function pointer in Bundle, either with a pass through
+ *    start_ssl(), or directly calling the function pointer
+ *    with the already-established STalker that uses the socket
+ *    directly.
+ * 5. start_ssl(), if necessary, starts a TLS session and builds
+ *    a new STalker object to communicate with the server,
+ *    continuing to ...
+ * 6. use_talker_for_email() for now, but this may change with
+ *    continued development.  It calls check_authentication()
+ *    to login and send_email_header() to begin a canned email
+ *    transaction.
+ */
+
 
 #endif
