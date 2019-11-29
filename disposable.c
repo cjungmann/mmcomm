@@ -29,23 +29,23 @@ void use_ssl(SSL *ssl, Bundle *p_bundle)
    {
       to = "chuck@cpjj.net";
 
-      if (request_email_permission(ssl, to, p_bundle))
-      {
-         // Composing email
-         from = acct_value(p_bundle, "from");
-         subject = "Test email from mmcomm, a C-language mailer";
+      /* if (request_email_permission(ssl, to, p_bundle)) */
+      /* { */
+      /*    // Composing email */
+      /*    from = acct_value(p_bundle, "from"); */
+      /*    subject = "Test email from mmcomm, a C-language mailer"; */
 
-         bytes_to_write = sprintf(message, format, from, to, subject);
-         SSL_write(ssl, message, bytes_to_write);
-         bytes_read = SSL_read(ssl, message, sizeof(message));
+      /*    bytes_to_write = sprintf(message, format, from, to, subject); */
+      /*    SSL_write(ssl, message, bytes_to_write); */
+      /*    bytes_read = SSL_read(ssl, message, sizeof(message)); */
 
-         if (p_bundle->encoded_login)
-         {
-         }
+      /*    if (p_bundle->encoded_login) */
+      /*    { */
+      /*    } */
 
-         message[bytes_read] = '\0';
-         printf("%s\n", message);
-      }
+      /*    message[bytes_read] = '\0'; */
+      /*    printf("%s\n", message); */
+      /* } */
    }
 }
 
