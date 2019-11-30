@@ -65,7 +65,7 @@ void present_ssl_error(int connect_error);
  */
 
 
-/** Construct and submit an email header. */
+/** Construct and submit an email envelope (MAIL FROM and RCPT TO fields). */
 int prepare_email_envelope(STalker *talker, const char *to,  Bundle *p_bundle);
 
 /** Send base46-encoded login and password to server and return success. */
