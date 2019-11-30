@@ -51,3 +51,7 @@ find the IP address of a domain before the socket can be opened.
 - [SMTP Reply Codes](https://serversmtp.com/smtp-error/) explains codes likes 354, 250, etc.
 - [Wiki on SMTP Reply Codes](https://en.wikipedia.org/wiki/List_of_SMTP_server_return_codes)
 - [SMTP Standards about replies](https://tools.ietf.org/html/rfc5321#section-4.1.1.1)
+
+## Structure of Email Message
+
+- [Wiki SMTP Article](https://en.wikipedia.org/wiki/Simple_Mail_Transfer_Protocol)
