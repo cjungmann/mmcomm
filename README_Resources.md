@@ -45,6 +45,11 @@ find the IP address of a domain before the socket can be opened.
 
 - [Perhaps more useful; email/gmail specific](https://codevlog.com/gmailsmtp-gmail-com-using-c-programming-ssl/118)
 
+## Debugging Connections
+
+- [Testing with OpenSSL and Telnet](https://www.stevenrombauts.be/2018/12/test-smtp-with-telnet-or-openssl/)
+  Although not authoritative or complete, this page provides
+  enough information to begin.
 
 ## Interpreting Replys
 
