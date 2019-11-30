@@ -192,8 +192,8 @@ int prepare_email_envelope(STalker *talker, const char *to,  Bundle *p_bundle)
       if (reply_is_good_stderr(buffer, bytes_read, "rcpt_to"))
       {
          bytes_sent += stk_send_line(talker, "DATA", NULL);
-
          bytes_read = stk_recv_line(talker, buffer, sizeof(buffer));
+
          smtp_reply = get_reply_int(buffer);
          if (smtp_reply == 354)
             return 1;
@@ -239,28 +239,29 @@ int check_authentication(STalker *talker, Bundle *p_bundle)
  */
 void use_talker_for_email(STalker *talker, Bundle *p_bundle)
 {
+   char buffer[1000];
+   size_t bytes_read;
    const char *send_to = "chuck@cpjj.net";
    if (check_authentication(talker, p_bundle));
    {
       fprintf(stderr,  "Sending email header.\n");
       if (prepare_email_envelope(talker, send_to, p_bundle))
       {
-         fprintf(stderr, "Sending subject\n");
-         if (!stk_send_recv_line(talker, "SUBJECT: Test", NULL))
-            return;
-
-         fprintf(stderr, "Sending line 1\n");
-         if (!stk_send_recv_line(talker, "This is a new email. Yay.", NULL))
-            return;
-
-         fprintf(stderr, "Sending line 2\n");
-         if (!stk_send_recv_line(talker, "This is the second line of the email. Yay.", NULL))
-            return;
-
-         fprintf(stderr, "Sending extra newline\n");
-         stk_send_recv_line(talker, ".",  NULL);
+         stk_send_line(talker, "Subject: Test", NULL);
+         stk_send_line(talker, "This is a new email. Yay.", NULL);
+         stk_send_line(talker, "This is the second line of the email. Yay.", NULL);
+         stk_send_line(talker, ".",  NULL);
+         bytes_read = stk_recv_line(talker, buffer, sizeof(buffer));
+         reply_is_good_stderr(buffer, bytes_read, "Email sent");
       }
+
+
+      stk_send_line(talker, "QUIT", NULL);
+      bytes_read = stk_recv_line(talker, buffer, sizeof(buffer));
+      reply_is_good_stderr(buffer, bytes_read, "Email sent");
    }
+
+
 }
 
 void start_ssl(int socket_handle, Bundle *p_bundle)
