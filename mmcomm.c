@@ -29,6 +29,8 @@
 #include "socktalk.h"
 #include "mmcomm.h"
 
+// Global flag to report emailing steps
+unsigned int verbose = 1;
 
 const char *bundle_value(const Bundle *b, const char *section, const char *tag)
 {
@@ -217,17 +219,28 @@ int check_authentication(STalker *talker, Bundle *p_bundle)
    char buffer[1000];
    stk_send_line(talker, "AUTH LOGIN", NULL);
    bytes_read = stk_recv_line(talker, buffer, sizeof(buffer));
-   printf("AUTH LOGIN response: %.*s.\n", (int)bytes_read, buffer);
+
+   if (verbose)
+      fprintf(stderr, "status: AUTH LOGIN response: %.*s\n", (int)bytes_read, buffer);
+
    if (reply_auth_is_good_stderr(buffer, bytes_read, "Request AUTH LOGIN"))
    {
+      if (verbose)
+         fprintf(stderr, "status: Sending encoded username: '%s'\n", login_str);
+
       stk_send_line(talker, login_str, NULL);
       bytes_read = stk_recv_line(talker, buffer, sizeof(buffer));
       if (reply_auth_is_good_stderr(buffer, bytes_read, "Authorization, sent login"))
       {
+         if (verbose)
+            fprintf(stderr, "status: Sending encoded password: '%s'\n", pword_str);
+
          stk_send_line(talker, pword_str, NULL);
          bytes_read = stk_recv_line(talker, buffer, sizeof(buffer));
          if (reply_is_good_stderr(buffer, bytes_read, "Authorization, sent password"))
             return 1;
+         else
+            fprintf(stderr, "authorization failed.\n");
       }
    }
 
@@ -242,9 +255,15 @@ void use_talker_for_email(STalker *talker, Bundle *p_bundle)
    char buffer[1000];
    size_t bytes_read;
    const char *send_to = "chuck@cpjj.net";
+
+   if (verbose)
+      fprintf(stderr, "status: about to check authentication.\n");
+
    if (check_authentication(talker, p_bundle));
    {
-      fprintf(stderr,  "Sending email header.\n");
+      if (verbose)
+         fprintf(stderr,  "status: Sending email header.\n");
+
       if (prepare_email_envelope(talker, send_to, p_bundle))
       {
          stk_send_line(talker, "Subject: Test", NULL);
@@ -308,6 +327,10 @@ void start_ssl(int socket_handle, Bundle *p_bundle)
             {
                STalker talker;
                init_ssl_talker(&talker, ssl);
+
+               if (verbose)
+                  fprintf(stderr, "status: SSL protocol initialized.\n");
+
                (*p_bundle->talker_user)(&talker, p_bundle);
             }
             else if (connect_outcome == 0)
@@ -323,7 +346,7 @@ void start_ssl(int socket_handle, Bundle *p_bundle)
          }
          else  // failed to get an SSL
          {
-            fprintf(stderr, "[32;1mFailed to get an SSL object.[m\n");
+            fprintf(stderr, "Failed to get an SSL object.\n");
             ERR_print_errors_fp(stderr);
          }
 
@@ -377,6 +400,9 @@ void use_socket_for_email(int socket_handle, Bundle *p_bundle)
       bytes_written += stk_send_line(stalker, "EHLO ", host, NULL);
       total_read += bytes_read = stk_recv_line(stalker, buffer, sizeof(buffer));
 
+      if (verbose)
+         fprintf(stderr, "status: Response to EHLO\n%.*s\n", (int)bytes_read, buffer);
+
       bptr = buffer;
       while (*bptr)
       {
@@ -385,7 +411,7 @@ void use_socket_for_email(int socket_handle, Bundle *p_bundle)
             break;
          else if (chars_to_advance == -1)
          {
-            printf("Error walking status reply [44;1m%s[m.\n", buffer);
+            fprintf(stderr, "Error walking status reply [44;1m%s[m.\n", buffer);
             break;
          }
          else
@@ -413,7 +439,8 @@ void use_socket_for_email(int socket_handle, Bundle *p_bundle)
          }
       }
 
-      show_status_chain(sl_anchor);
+      if (verbose)
+         show_status_chain(sl_anchor);
 
       p_bundle->host_status_chain = sl_anchor;
 
@@ -434,6 +461,9 @@ void use_socket_for_email(int socket_handle, Bundle *p_bundle)
       else
       {
          STalker talker;
+         if (verbose)
+            fprintf(stderr, "status: Not using TLS, start with socket.\n");
+
          init_sock_talker(&talker, socket_handle);
          (*p_bundle->talker_user)(&talker, p_bundle);
       }
@@ -463,27 +493,41 @@ void get_socket(const char *url, const char *service, Bundle *p_bundle)
 
    if (exit_value==0)
    {
-      // The next statement shows debugging info about the addrinfo object:
-      /* display_addrinfo(result); */
+      /* if (verbose) */
+      /*    display_addrinfo(result); */
 
       for (rp = result; rp; rp = rp->ai_next)
       {
-         socket_handle = socket(rp->ai_family,
-                         rp->ai_socktype,
-                         rp->ai_protocol);
+         exit_value = 1;
 
-         if (socket_handle == -1)
-            continue;
-
-         if (0 == connect(socket_handle, rp->ai_addr, rp->ai_addrlen))
+         if ((rp->ai_family == PF_INET || rp->ai_family == PF_INET6)
+             && rp->ai_socktype == SOCK_STREAM
+             && rp->ai_protocol == IPPROTO_TCP)
          {
-            (*p_bundle->socket_user)(socket_handle, p_bundle);
-            close(socket_handle);
-            break;
+            socket_handle = socket(rp->ai_family,
+                                   rp->ai_socktype,
+                                   rp->ai_protocol);
+
+            if (socket_handle == -1)
+               continue;
+
+            if (0 == connect(socket_handle, rp->ai_addr, rp->ai_addrlen))
+            {
+               if (verbose)
+                  fprintf(stderr, "status: Socket successfully opened.\n");
+
+               exit_value = 0;
+               (*p_bundle->socket_user)(socket_handle, p_bundle);
+
+               close(socket_handle);
+               break;
+            }
+
          }
-         else
-            fprintf(stderr, "Connection attempt failed (%s).\n", strerror(errno));
       }
+
+      if (exit_value)
+         fprintf(stderr, "Socket connection failed for URL='%s' (%s).\n", url, strerror(errno));
 
       freeaddrinfo(result);
    }
@@ -503,6 +547,9 @@ void use_config_file(const ri_Section *section)
    Bundle bundle;
    memset(&bundle, 0, sizeof(Bundle));
 
+   if (verbose)
+      fprintf(stderr, "status: Successfully opened the config file.\n");
+
    acct = ri_find_section_value(section, "defaults", "default-account");
    if (acct)
    {
@@ -515,7 +562,7 @@ void use_config_file(const ri_Section *section)
       host = acct_value(&bundle, "host");
       port_str = acct_value(&bundle, "port");
 
-      const char *login = acct_value(&bundle, "user");
+      const char *login = acct_value(&bundle, "from");
       const char *password = acct_value(&bundle, "password");
       if (login && password)
       {
@@ -536,19 +583,37 @@ void use_config_file(const ri_Section *section)
          buffer = (char*)alloca(len_password);
          c64_encode_to_buffer(password, raw_len_password, (uint32_t*)buffer, len_password);
          bundle.encoded_password = buffer;
+
+
+         bundle.encoded_login = login;
+         /* bundle.encoded_password = password; */
+
       }
 
       get_socket(host, port_str, &bundle);
    }
 }
 
-int main(int argc, char **argv)
+int main(int argc, const char **argv)
 {
-   /* simple_socket_test(); */
+   const char **ptr = argv;
+   const char **end = ptr + argc;
+   const char *str;
+
+   while (++ptr < end)
+   {
+      str = *ptr;
+      printf("argument '%s'\n", str);
+   }
 
    const char *fpath = find_config();
    if (fpath)
+   {
+      if (verbose)
+         fprintf(stderr, "status: Using configuration file at '%s'\n", fpath);
+
       ri_read_file(fpath, use_config_file);
+   }
    else
       fprintf(stderr, "Failed to find a mmcomm configuration file.\n");
 
