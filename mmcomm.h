@@ -84,7 +84,7 @@ void use_socket_for_email(int socket_handle, Bundle *p_bundle);
 void get_socket(const char *url, const char *service, Bundle *p_bundle);
 
 /** Callback function that consumes settings in a configuration file to call get_socket(). */
-void use_config_file(const ri_Section *section);
+void use_config_file(const ri_Section *section, void *data);
 
 /**
  * The order of function invocation is the reverse of the above functions:

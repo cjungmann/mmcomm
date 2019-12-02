@@ -540,12 +540,11 @@ void get_socket(const char *url, const char *service, Bundle *p_bundle)
 /**
  * @brief Use values from config file to begin the SMTP connection.
  */
-void use_config_file(const ri_Section *section)
+void use_config_file(const ri_Section *section, void* data)
 {
    const char *acct, *host, *port_str;
 
-   Bundle bundle;
-   memset(&bundle, 0, sizeof(Bundle));
+   Bundle *p_bundle = (Bundle*)data;
 
    if (verbose)
       fprintf(stderr, "status: Successfully opened the config file.\n");
@@ -553,21 +552,21 @@ void use_config_file(const ri_Section *section)
    acct = ri_find_section_value(section, "defaults", "default-account");
    if (acct)
    {
-      bundle.section = section;
+      p_bundle->section = section;
       /* bundle.socket_user = start_ssl; */
-      bundle.socket_user = use_socket_for_email;
-      bundle.talker_user = use_talker_for_email;
-      bundle.acct = acct;
+      p_bundle->socket_user = use_socket_for_email;
+      p_bundle->talker_user = use_talker_for_email;
+      p_bundle->acct = acct;
 
-      host = acct_value(&bundle, "host");
-      port_str = acct_value(&bundle, "port");
+      host = acct_value(p_bundle, "host");
+      port_str = acct_value(p_bundle, "port");
 
-      const char *login = acct_value(&bundle, "from");
-      const char *password = acct_value(&bundle, "password");
+      const char *login = acct_value(p_bundle, "from");
+      const char *password = acct_value(p_bundle, "password");
       if (login && password)
       {
-         bundle.raw_login = login;
-         bundle.raw_password = password;
+         p_bundle->raw_login = login;
+         p_bundle->raw_password = password;
 
          c64_set_special_chars("+/");
 
@@ -578,19 +577,19 @@ void use_config_file(const ri_Section *section)
 
          char *buffer = (char*)alloca(len_login);
          c64_encode_to_buffer(login, raw_len_login, (uint32_t*)buffer, len_login);
-         bundle.encoded_login = buffer;
+         p_bundle->encoded_login = buffer;
 
          buffer = (char*)alloca(len_password);
          c64_encode_to_buffer(password, raw_len_password, (uint32_t*)buffer, len_password);
-         bundle.encoded_password = buffer;
+         p_bundle->encoded_password = buffer;
 
 
-         bundle.encoded_login = login;
-         /* bundle.encoded_password = password; */
+         /* p_bundle->encoded_login = login; */
+         /* p_bundle->encoded_password = password; */
 
       }
 
-      get_socket(host, port_str, &bundle);
+      get_socket(host, port_str, p_bundle);
    }
 }
 
@@ -599,6 +598,9 @@ int main(int argc, const char **argv)
    const char **ptr = argv;
    const char **end = ptr + argc;
    const char *str;
+
+   Bundle bundle;
+   memset(&bundle, 0, sizeof(Bundle));
 
    while (++ptr < end)
    {
@@ -612,7 +614,7 @@ int main(int argc, const char **argv)
       if (verbose)
          fprintf(stderr, "status: Using configuration file at '%s'\n", fpath);
 
-      ri_read_file(fpath, use_config_file);
+      ri_read_file(fpath, use_config_file, (void*)&bundle);
    }
    else
       fprintf(stderr, "Failed to find a mmcomm configuration file.\n");
