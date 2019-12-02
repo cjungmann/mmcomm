@@ -60,3 +60,13 @@ find the IP address of a domain before the socket can be opened.
 ## Structure of Email Message
 
 - [Wiki SMTP Article](https://en.wikipedia.org/wiki/Simple_Mail_Transfer_Protocol)
+
+## Ensuring Completeness
+
+There are so many scenarios for email, I need to test as many as possible
+if I want this utility to be generally useful.
+
+- [Amazon **S**imple **E**mail **S**ervice Mailbox Simulator](https://docs.aws.amazon.com/ses/latest/DeveloperGuide/mailbox-simulator.html)  
+  This page shows SMTP responses to several types of email.  Use these
+  email address (with SES, of course) to ensure likely cases can be 
+  handled.
