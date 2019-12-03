@@ -25,18 +25,35 @@ typedef void(*CB_Socket)(int handle_socket, Bundle *p_bundle);
 
 typedef void(*CB_Talker)(STalker *talker, Bundle *p_bundle);
 
+typedef struct _mc_mail
+{
+   const char *To;
+   const char *From;
+   const char *Subject;
+   const char *Reply_To;
+   const char *CC;
+   const char *BCC;
+   const char *message;
+} MC_Mail;
+
+typedef int(*Email_Tap)(MC_Mail *mail, void *data);
+
 typedef struct bundle
 {
    const ri_Section  *section;
    const char        *acct;
-   CB_Socket         socket_user;
-   CB_Talker         talker_user;
    const Status_Line *host_status_chain;
    const char*       raw_login;
    const char*       encoded_login;
    const char*       raw_password;
    const char*       encoded_password;
+   CB_Socket         socket_user;
+   CB_Talker         talker_user;
+   Email_Tap         email_tap;
+   void              *email_data;
 } Bundle;
+
+
 
 /** Shortcut functions to extract configuration data from the bundle. */
 const char *bundle_value(const Bundle *b, const char *section, const char *tag);
@@ -66,7 +83,7 @@ void present_ssl_error(int connect_error);
 
 
 /** Construct and submit an email envelope (MAIL FROM and RCPT TO fields). */
-int prepare_email_envelope(STalker *talker, const char *to,  Bundle *p_bundle);
+int prepare_email_envelope(STalker *talker, const char *to,  const char *from);
 
 /** Send base46-encoded login and password to server and return success. */
 int check_authentication(STalker *talker, Bundle *p_bundle);
