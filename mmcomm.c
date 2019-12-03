@@ -30,7 +30,7 @@
 #include "mmcomm.h"
 
 // Global flag to report emailing steps
-unsigned int verbose = 1;
+unsigned int verbose = 0;
 
 const char *bundle_value(const Bundle *b, const char *section, const char *tag)
 {
@@ -175,13 +175,12 @@ void present_ssl_error(int connect_error)
       fprintf(stderr, "Failed to make SSL connection (%s).\n", msg);
 }
 
-int prepare_email_envelope(STalker *talker, const char *to,  Bundle *p_bundle)
+int prepare_email_envelope(STalker *talker, const char *to,  const char *from)
 {
    char buffer[1024];
 
    int smtp_reply;
    int bytes_sent = 0, bytes_read = 0;
-   const char *from = acct_value(p_bundle, "from");
 
    bytes_sent += stk_send_line(talker, "MAIL FROM: <", from, ">", NULL);
    bytes_read = stk_recv_line(talker, buffer, sizeof(buffer));
@@ -253,34 +252,74 @@ int check_authentication(STalker *talker, Bundle *p_bundle)
 void use_talker_for_email(STalker *talker, Bundle *p_bundle)
 {
    char buffer[1000];
-   size_t bytes_read;
-   const char *send_to = "chuck@cpjj.net";
+   size_t bytes_read = 0;
+
+   const char *send_from;
+   const char *default_from = acct_value(p_bundle, "from");
+
+   MC_Mail email_item;
+   Email_Tap email_tap = p_bundle->email_tap;
+
+   if (!email_tap)
+   {
+      fprintf(stderr, "Emailing failed due to missing email tap.\n");
+      return;
+   }
 
    if (verbose)
       fprintf(stderr, "status: about to check authentication.\n");
 
    if (check_authentication(talker, p_bundle));
    {
-      if (verbose)
-         fprintf(stderr,  "status: Sending email header.\n");
-
-      if (prepare_email_envelope(talker, send_to, p_bundle))
+      if ( (*email_tap)(&email_item, p_bundle->email_data) )
       {
-         stk_send_line(talker, "Subject: Test", NULL);
-         stk_send_line(talker, "This is a new email. Yay.", NULL);
-         stk_send_line(talker, "This is the second line of the email. Yay.", NULL);
-         stk_send_line(talker, ".",  NULL);
-         bytes_read = stk_recv_line(talker, buffer, sizeof(buffer));
-         reply_is_good_stderr(buffer, bytes_read, "Email sent");
+         // Use best available *from* address
+         send_from = email_item.From ? email_item.From : default_from;
+
+         if (verbose)
+            fprintf(stderr,  "status: Sending email to %s...", email_item.To);
+
+         if (prepare_email_envelope(talker, email_item.To, send_from))
+         {
+            stk_send_line(talker, "To : ", email_item.To, NULL);
+            stk_send_line(talker, "From : " , send_from, NULL);
+            if (email_item.Reply_To)
+               stk_send_line(talker, "Reply-To : " , email_item.Reply_To, NULL);
+            if (email_item.CC)
+               stk_send_line(talker, "CC : " , email_item.CC, NULL);
+            if (email_item.BCC)
+               stk_send_line(talker, "BCC : " , email_item.BCC, NULL);
+            if (email_item.Subject)
+               stk_send_line(talker, "Subject : " , email_item.Subject, NULL);
+
+            // Blank line to indicate email headers are complete
+            stk_send_line(talker, NULL);
+
+            if (email_item.message)
+               stk_send_line(talker, "BCC : " , email_item.BCC, NULL);
+
+            // Indicate end-of email transmission;
+            stk_send_line(talker, ".", NULL);
+
+            bytes_read += stk_recv_line(talker, buffer, sizeof(buffer));
+            if (verbose)
+            {
+               if (reply_is_good(buffer))
+                  fprintf(stderr, "email sent.\n");
+               else
+                  fprintf(stderr, "failed to send email.\n");
+            }
+         }
+         else if (verbose)
+            fprintf(stderr, "envelope failed.\n");
       }
 
-
       stk_send_line(talker, "QUIT", NULL);
-      bytes_read = stk_recv_line(talker, buffer, sizeof(buffer));
-      reply_is_good_stderr(buffer, bytes_read, "Email sent");
+      bytes_read += stk_recv_line(talker, buffer, sizeof(buffer));
    }
 
-
+   if (verbose)
+      fprintf(stderr, "Total response bytes read: %lu.\n", bytes_read);
 }
 
 void start_ssl(int socket_handle, Bundle *p_bundle)
@@ -543,15 +582,24 @@ void get_socket(const char *url, const char *service, Bundle *p_bundle)
 void use_config_file(const ri_Section *section, void* data)
 {
    const char *acct, *host, *port_str;
+   const char *login = NULL, *password = NULL;
 
    Bundle *p_bundle = (Bundle*)data;
 
    if (verbose)
       fprintf(stderr, "status: Successfully opened the config file.\n");
 
-   acct = ri_find_section_value(section, "defaults", "default-account");
+   // Prefer preset account name to config file values:
+   if (p_bundle->acct)
+      acct= p_bundle->acct;
+   else
+      acct = p_bundle->acct = ri_find_section_value(section, "defaults", "default-account");
+
    if (acct)
    {
+      if (verbose)
+         fprintf(stderr, "status: Using account '%s'.\n", acct);
+
       p_bundle->section = section;
       /* bundle.socket_user = start_ssl; */
       p_bundle->socket_user = use_socket_for_email;
@@ -561,14 +609,20 @@ void use_config_file(const ri_Section *section, void* data)
       host = acct_value(p_bundle, "host");
       port_str = acct_value(p_bundle, "port");
 
-      const char *login = acct_value(p_bundle, "from");
-      const char *password = acct_value(p_bundle, "password");
+      // Prefer preset login and password values to config file values:
+      if (p_bundle->raw_login)
+         login = p_bundle->raw_login;
+      else
+         login = acct_value(p_bundle,"from");
+
+      if (p_bundle->raw_password)
+         password = p_bundle->raw_password;
+      else
+         password = acct_value(p_bundle,"password");
+
       if (login && password)
       {
-         p_bundle->raw_login = login;
-         p_bundle->raw_password = password;
-
-         c64_set_special_chars("+/");
+         /* c64_set_special_chars("+/"); */
 
          int raw_len_login = strlen(login);
          int raw_len_password = strlen(password);
@@ -593,19 +647,149 @@ void use_config_file(const ri_Section *section, void* data)
    }
 }
 
+typedef struct _test_email_atom
+{
+   const char *to;
+   const char *subject;
+   const char *msg;
+} EAtom;
+
+typedef struct _email_data
+{
+   const EAtom *earray;
+   const EAtom *cur;
+   const EAtom *end;
+} EData;
+
+EAtom edata_emails[] = {
+   {"chuck@cpjj.net",          "First Test Email", "This is an email test, the first." },
+   {"chuckj60@gmail.com",      "First Test Email", "This is an email test, the first." },
+   {"chuckjungmann@gmail.com", "First Test Email", "This is an email test, the first." }
+};
+
+
+void reset_EData(EData *ed)        { ed->cur = ed->earray; }
+int inrange_EData(const EData *ed) { return ed->cur < ed->end; }
+void increment_EData(EData *ed)    { ++(ed->cur); }
+
+void construct_EData(EData *ed, const EAtom *eatoms, size_t count)
+{
+   ed->earray = eatoms;
+   ed->end = &eatoms[count];
+   reset_EData(ed);
+};
+
+
+int Test_Email_Tap(MC_Mail *mail, void *data)
+{
+   EData *edata = (EData*)data;
+   const EAtom *eatom;
+
+   memset(mail, 0, sizeof(MC_Mail));
+
+   if (inrange_EData(edata))
+   {
+      eatom = edata->cur;
+
+      mail->To = eatom->to;
+      mail->Subject = eatom->subject;
+      mail->message = eatom->msg;
+
+      increment_EData(edata);
+
+      return 1;
+   }
+   else
+      return 0;
+}
+
+
+
+void show_usage(void)
+{
+   const char *options[] = {
+      "-a profile account",
+      "-l login name (corresponds to 'user' config value)",
+      "-m MAIL FROM",
+      "-p port",
+      "-r RCPT TO",
+      "-s subject"
+      "-u URL",
+      "-w password",
+      NULL
+   };
+
+   const char **ptr = options;
+   while (*ptr)
+   {
+      printf("%s\n", *ptr);
+      ++ptr;
+   }
+}
+   
+
 int main(int argc, const char **argv)
 {
-   const char **ptr = argv;
-   const char **end = ptr + argc;
+   const char **parg = argv;
+   const char **end = parg + argc;
    const char *str;
 
    Bundle bundle;
    memset(&bundle, 0, sizeof(Bundle));
 
-   while (++ptr < end)
+   bundle.email_tap = Test_Email_Tap;
+
+   EData edata;
+   int edata_len = sizeof(edata_emails) / sizeof(EAtom);
+   construct_EData(&edata, edata_emails, edata_len);
+
+   bundle.email_data = (void*)&edata;
+
+   while (++parg < end)
    {
-      str = *ptr;
-      printf("argument '%s'\n", str);
+      str = *parg;
+      if (*str == '-')
+      {
+         while (*++str)
+         {
+            switch(*str)
+            {
+               case 'a':
+                  bundle.acct = *++parg;
+                  goto abandon_arg;
+               case 'l':
+                  bundle.raw_login = *++parg;
+                  goto abandon_arg;
+               case 'm':  // MAIL FROM
+                  break;
+               case 'p': // port
+                  break;
+               case 'r': // RCPT TO
+                  break;
+               case 's': // subject
+                  break;
+               case 'u': // URL
+                  break;
+               case 'v': // verbose
+                  verbose = 1;
+                  break;
+               case 'w': // password
+                  bundle.raw_password = *++parg;
+                  goto abandon_arg;
+               default:
+                  break;
+            };
+         }
+
+         // "unstructured" break: tiny performance improvement, but
+         // the alternative bugs me: to set a flag to break the _while_
+         // loop requires an additional variable (no big deal), but
+         // also an otherwise unnecessary condition check for each
+         // iteration.
+         abandon_arg:
+         ; // minimum required code following the label
+      }
+
    }
 
    const char *fpath = find_config();
