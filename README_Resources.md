@@ -51,6 +51,18 @@ find the IP address of a domain before the socket can be opened.
   Although not authoritative or complete, this page provides
   enough information to begin.
 
+## Email Sandbox
+
+- [Amazon Simple Email Service](https://docs.aws.amazon.com/ses/latest/DeveloperGuide/Welcome.html)  
+  I tried to use this.  It seemed to work once, but then not again.
+  Perhaps I imagined the first time.  I may have to return to this
+  for sandbox testing, but I couldn't figure out how to verify an
+  email address and S3 bucket to receive emails.
+
+- [PepiPost Sandbox](https://pepipost.com/blog/pepipost-sandbox/)
+  I haven't used this yet, but it may be a sandbox I can use
+  to see how another SMTP server responds.
+
 ## Interpreting Replys
 
 - [SMTP Reply Codes](https://serversmtp.com/smtp-error/) explains codes likes 354, 250, etc.
