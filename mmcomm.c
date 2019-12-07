@@ -68,15 +68,16 @@ int reply_is_good_stderr(char *buffer, int message_length, const char *descripti
 {
    if (reply_is_good(buffer))
    {
-      fprintf(stderr, "(%s) The reply was good for %d characters.\n", description, message_length);
-      printf("%.*s\n", message_length, buffer);
+      if (verbose)
+         printf("status: %.*s\n", message_length, buffer);
       return 1;
    }
    else
    {
-      fprintf(stderr, "(%s) The server responded with %d characters.\n", description, message_length);
-      buffer[message_length] = '\0';
-      fprintf(stderr, "Error during **%s**: \"[44;1m%s[m\"", description, buffer);
+      fprintf(stderr, "Error during **%s**: \"[44;1m%.*s[m\"",
+              description,
+              message_length,
+              buffer);
       return 0;
    }
 }
@@ -256,6 +257,7 @@ void use_talker_for_email(STalker *talker, Bundle *p_bundle)
 
    const char *send_from;
    const char *default_from = acct_value(p_bundle, "from");
+   int mail_count = 0;
 
    MC_Mail email_item;
    Email_Tap email_tap = p_bundle->email_tap;
@@ -271,7 +273,7 @@ void use_talker_for_email(STalker *talker, Bundle *p_bundle)
 
    if (check_authentication(talker, p_bundle));
    {
-      if ( (*email_tap)(&email_item, p_bundle->email_data) )
+      while ( (*email_tap)(&email_item, p_bundle->email_data) )
       {
          // Use best available *from* address
          send_from = email_item.From ? email_item.From : default_from;
@@ -281,37 +283,39 @@ void use_talker_for_email(STalker *talker, Bundle *p_bundle)
 
          if (prepare_email_envelope(talker, email_item.To, send_from))
          {
-            stk_send_line(talker, "To : ", email_item.To, NULL);
-            stk_send_line(talker, "From : " , send_from, NULL);
+            stk_send_line(talker, "To: ", email_item.To, NULL);
+            stk_send_line(talker, "From: " , send_from, NULL);
             if (email_item.Reply_To)
-               stk_send_line(talker, "Reply-To : " , email_item.Reply_To, NULL);
+               stk_send_line(talker, "Reply-To: " , email_item.Reply_To, NULL);
             if (email_item.CC)
-               stk_send_line(talker, "CC : " , email_item.CC, NULL);
+               stk_send_line(talker, "CC: " , email_item.CC, NULL);
             if (email_item.BCC)
-               stk_send_line(talker, "BCC : " , email_item.BCC, NULL);
+               stk_send_line(talker, "BCC: " , email_item.BCC, NULL);
             if (email_item.Subject)
-               stk_send_line(talker, "Subject : " , email_item.Subject, NULL);
+               stk_send_line(talker, "Subject: " , email_item.Subject, NULL);
 
             // Blank line to indicate email headers are complete
             stk_send_line(talker, NULL);
 
             if (email_item.message)
-               stk_send_line(talker, "BCC : " , email_item.BCC, NULL);
+               stk_send_line(talker, email_item.message, NULL);
 
             // Indicate end-of email transmission;
             stk_send_line(talker, ".", NULL);
 
             bytes_read += stk_recv_line(talker, buffer, sizeof(buffer));
-            if (verbose)
+            if (reply_is_good(buffer))
             {
-               if (reply_is_good(buffer))
-                  fprintf(stderr, "email sent.\n");
-               else
-                  fprintf(stderr, "failed to send email.\n");
+               ++mail_count;
+
+               if (verbose)
+                  fprintf(stderr, "status: email sent.\n");
             }
+            else if (verbose)
+               fprintf(stderr, "status: failed to send email.\n");
          }
          else if (verbose)
-            fprintf(stderr, "envelope failed.\n");
+            fprintf(stderr, "status: envelope failed.\n");
       }
 
       stk_send_line(talker, "QUIT", NULL);
@@ -319,7 +323,7 @@ void use_talker_for_email(STalker *talker, Bundle *p_bundle)
    }
 
    if (verbose)
-      fprintf(stderr, "Total response bytes read: %lu.\n", bytes_read);
+      fprintf(stderr, "status: %d emails sent, total response bytes read: %lu.\n", mail_count, bytes_read);
 }
 
 void start_ssl(int socket_handle, Bundle *p_bundle)
@@ -532,8 +536,8 @@ void get_socket(const char *url, const char *service, Bundle *p_bundle)
 
    if (exit_value==0)
    {
-      /* if (verbose) */
-      /*    display_addrinfo(result); */
+      if (verbose)
+         display_addrinfo(result);
 
       for (rp = result; rp; rp = rp->ai_next)
       {
@@ -725,6 +729,8 @@ void show_usage(void)
       printf("%s\n", *ptr);
       ++ptr;
    }
+
+   printf("and that's it.\n");
 }
    
 
@@ -757,6 +763,9 @@ int main(int argc, const char **argv)
                case 'a':
                   bundle.acct = *++parg;
                   goto abandon_arg;
+               case 'h':
+                  show_usage();
+                  goto abandon_app;
                case 'l':
                   bundle.raw_login = *++parg;
                   goto abandon_arg;
@@ -803,6 +812,8 @@ int main(int argc, const char **argv)
    else
       fprintf(stderr, "Failed to find a mmcomm configuration file.\n");
 
+  abandon_app:
+   ;
 
    return 0;
 }
