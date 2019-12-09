@@ -51,6 +51,28 @@ find the IP address of a domain before the socket can be opened.
   Although not authoritative or complete, this page provides
   enough information to begin.
 
+## Command Line Testing Server Greeting
+
+It is easier to observe a server's reply in a terminal than by
+writing or modifying a program to interpret the reply.  SMTP servers
+can be used through **telnet** or **openssl**.  This section tries to
+provide a little head-start to using these utilities to test SMTP
+interactions.
+
+- **telnet** can be used for unencrypted SMTP interactions, usually
+  using port 25.
+
+  ~~~sh
+  user@computer: ~$ telnet smtp.gmail.com 587
+  ~~~
+
+- **openssl** can be used for encrypted interactions.
+
+  ~~~sh
+  user@computer: ~$ openssl s_client -connect smtp.gmail.com:587 -starttls smtp
+  ~~~
+
+
 ## Email Sandbox
 
 - [Amazon Simple Email Service](https://docs.aws.amazon.com/ses/latest/DeveloperGuide/Welcome.html)  
