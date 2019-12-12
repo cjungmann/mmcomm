@@ -81,6 +81,10 @@ interactions.
   for sandbox testing, but I couldn't figure out how to verify an
   email address and S3 bucket to receive emails.
 
+  - This [SES Guide](https://blog.mailtrap.io/amazon-ses-explained/) offers
+    a condensed set of instructions to getting a SES account up and
+    running.
+
 - [PepiPost Sandbox](https://pepipost.com/blog/pepipost-sandbox/)
   I haven't used this yet, but it may be a sandbox I can use
   to see how another SMTP server responds.
