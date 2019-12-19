@@ -9,7 +9,7 @@ I continue to seek and learn details of the process of sending
 SMTP mail, and the following pages have, or in the future may,
 help me figure this whole thing out.
 
-## SMTP Documnetation
+## SMTP Documentation
 
 - [SMTP Standard Document](https://tools.ietf.org/html/rfc5321)  
   There is a lot here.  Links to specific sections are found below.
@@ -18,6 +18,26 @@ help me figure this whole thing out.
   In enhanced SMTP (greeting server with EHLO instead of HELO),
   there may be additional status information following the status
   code.  This document defines the protocol.
+
+- [Bounced Email Reckoning](https://www.vtiger.com/docs/email-bounces-and-error-codes)  
+  Undelivered emails should initiate some investigation.  This
+  page discusses many reasons an email might bounce, and includes
+  a table of SMTP error responses that help identify the type
+  of bounce.
+
+## POP3 Documentation
+
+In order to responsibly send emails, one must ensure that refused
+and bounced emails be strucken from the list to prevent repeated
+submissions of email that will ultimately be refused.
+
+Most of the work associated with establishing a connection to SMTP
+servers is useful when connecting to a POP3 server.  The difference,
+as far as I can tell right now, comes in the communication with
+the server.  The following link(s) will illustrate and document
+the nature of POP3 communication.
+
+- [POP3 with telnet](https://www.shellhacks.com/retrieve-email-pop3-server-command-line/)
 
 ## Opening A Socket
 
@@ -84,6 +104,14 @@ interactions.
   - This [SES Guide](https://blog.mailtrap.io/amazon-ses-explained/) offers
     a condensed set of instructions to getting a SES account up and
     running.
+
+  - [TXT Record setup](https://www.namecheap.com/support/knowledgebase/article.aspx/317/2237/how-do-i-add-txtspfdkimdmarc-records-for-my-domain)
+    gave me some problems that prompted me to call for support from
+    NameCheap support.  The helpful support person directed me to the
+    above link to help me understand the TXT record.  In short, when
+    Amazon directs you to create a TXT record with a name `_amazonses.your_domain.com`,
+    you set the host name to `_amazonses`, which is then a subdomain
+    of `your_domain.com`.
 
 - [PepiPost Sandbox](https://pepipost.com/blog/pepipost-sandbox/)
   I haven't used this yet, but it may be a sandbox I can use
